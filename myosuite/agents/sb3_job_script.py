@@ -8,6 +8,10 @@ This is a job script for running SB3 on myosuite tasks.
 """
 
 import os
+print(os.environ.get("MUJOCO_GL"))
+
+import myosuite
+from myosuite.utils import gym
 
 import torch
 from in_callbacks import EvalCallback, FallbackCheckpoint, InfoCallback
@@ -29,6 +33,8 @@ except ImportError:
 
 
 def train_loop(job_data) -> None:
+    # print("Registered envs:", list(gym.registry.keys()))
+    assert job_data.env in gym.registry.keys(), f"{job_data.env} not registered!"
 
     config = {
         "policy_type": job_data.policy,

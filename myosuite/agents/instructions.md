@@ -1,0 +1,1 @@
+1. Install wandb, login to wandb
