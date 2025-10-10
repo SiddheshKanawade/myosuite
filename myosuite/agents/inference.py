@@ -39,9 +39,9 @@ for n_episode in tqdm(range(num_episodes)):
     data_store.append({"action": a.copy(),
               "act":env.unwrapped.sim.data.act.copy(),
               "reward":r})
+    ep_rewards.append(r)
     if n_episode == num_episodes-1: # only save frames for the last episode
         frames.append(env.sim.renderer.render_offscreen(width=640, height=480, camera_id=1))
-        ep_rewards.append(r)
 
   all_rewards.append(np.sum(ep_rewards))
   print("Episode Reward:", all_rewards[-1])
