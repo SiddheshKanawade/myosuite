@@ -138,7 +138,8 @@ class TableTennisEnvV0(BaseV0):
             ('reach_dist', np.exp(-1. * reach_dist)),
             ('palm_dist', np.exp(-5. * palm_dist)),
             ('paddle_quat', np.exp(- 5 * paddle_quat_err)),
-            ('torso_up', np.exp(-5 * torso_err)),
+            ('torso_up', np.exp(-50 * torso_err)),
+            # ('torso_up', 0),
             #('ref_qpos_err', -1 * ref_qpos_err), use these for your imitation learning script
             #('ref_qvel_err', -1 * ref_qvel_err),
             # Must keys
