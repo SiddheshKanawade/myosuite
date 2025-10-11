@@ -81,14 +81,11 @@ class TableTennisEnvV0(BaseV0):
 
         self.id_info = IdInfo(self.sim.model)
         self.ball_dofadr = self.sim.model.body_dofadr[self.id_info.ball_bid]
-<<<<<<< HEAD
         self.ball_posadr = self.sim.model.joint("pingpong_freejoint").qposadr[0]
-=======
     
         for key in weighted_reward_keys.keys():
             self.rwd_history[key] = []
         self.rwd_history['dense'] = []
->>>>>>> modified reward functions for torso, ball vel, ball dir. Added rwd functions for ground hit, own hit, opp hit, net hit
 
         super()._setup(obs_keys=obs_keys,
                     weighted_reward_keys=weighted_reward_keys,
@@ -152,19 +149,6 @@ class TableTennisEnvV0(BaseV0):
         own_hit_history_rwd = sum(own_hit_history) > 1
         
         # Ball Direction Reward
-        opp_side_corners = [np.array([-1.37, -0.72]), np.array([-1.37,  0.80])] # x, y, z
-        ball_direction = obs_dict["ball_vel"] / np.linalg.norm(obs_dict["ball_vel"])
-        is_paddle_hit = sum(self.rwd_history['sparse']) == 1
-        is_opp_hit = sum(self.rwd_history['opp_hit']) == 1
-        
-        # valid_hit_direction_rwd = 0
-        # if is_paddle_hit and not is_opp_hit:
-            
-        #     A = opp_side_corners[0] - obs_dict['ball_pos'][0][0][:2]
-        #     B = opp_side_corners[1] - obs_dict['ball_pos'][0][0][:2]
-        #     V = ball_direction[0][0][:2]
-            
-        #     valid_hit_direction_rwd = ball_angle_reward(is_between_2d(A, B, V))
         # 3D guassian with positive reward if ball is closer to opponent court and negative reward if ball is closer to own court
         valid_hit_direction_rwd = reward_3d_above_table(obs_dict['ball_pos'][0][0])
         
@@ -196,7 +180,6 @@ class TableTennisEnvV0(BaseV0):
             ('ground_hit', (paddle_touch[4] == 1)), # discrete reward for ground hit
             ('ball_velocity', ball_velocity_rwd),
             ('ball_direction', valid_hit_direction_rwd),
-            # ('valid_hit_direction', valid_hit_direction_rwd),
             #('ref_qpos_err', -1 * ref_qpos_err), use these for your imitation learning script
             #('ref_qvel_err', -1 * ref_qvel_err),
             # Must keys
@@ -224,8 +207,12 @@ class TableTennisEnvV0(BaseV0):
         # save the reward history
         for key, value in rwd_dict.items():
             self.rwd_history[key].append(value)
+<<<<<<< HEAD
         # print(f"Reward: {rwd_dict}")
 >>>>>>> modified reward functions for torso, ball vel, ball dir. Added rwd functions for ground hit, own hit, opp hit, net hit
+=======
+
+>>>>>>> remove stale comments
         return rwd_dict
     
     def get_rwd_history(self):
