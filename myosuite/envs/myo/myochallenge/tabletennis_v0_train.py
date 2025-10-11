@@ -5,7 +5,7 @@ Authors  :: Cheryl Wang (cheryl.wang.huiyi@gmail.com), Balint Hodossy (bkh16@ic.
 ================================================= """
 
 import collections
-from typing import Dict, List
+from typing import List
 import enum
 
 from dm_control.mujoco.wrapper import MjModel as dm_MjModel
@@ -19,7 +19,6 @@ from scipy.spatial.transform import Rotation as R
 
 from myosuite.envs.myo.base_v0 import BaseV0
 from myosuite.utils.spec_processing import recursive_immobilize, recursive_remove_contacts, recursive_mirror
-from myosuite.agents.utils import is_between_2d, ball_angle_reward, reward_3d_above_table
 
 
 MAX_TIME = 3.0
@@ -29,21 +28,15 @@ class TableTennisEnvV0(BaseV0):
 
     DEFAULT_OBS_KEYS = ['pelvis_pos', 'body_qpos', 'body_qvel', 'ball_pos', 'ball_vel', 'paddle_pos', "paddle_vel", 'paddle_ori', 'reach_err' , "touching_info"]
     DEFAULT_RWD_KEYS_AND_WEIGHTS = {
-        "reach_dist": 1,
-        "palm_dist": 2,
-        "paddle_quat": 10,
-        "act_reg": 2,
-        'torso_up': 10,
+        # "reach_dist": 1,
+        # "palm_dist": 1,
+        # "paddle_quat": 2,
+        # "act_reg": .5,
+        'torso_up': 2,
         #"ref_qpos_err": 1,
         #"ref_qvel_err": .1,
-        "opp_hit": 200,
-        "net_hit": -100,
-        "own_hit": -100,
-        "ground_hit": -100,
-        "ball_velocity": 2,
-        "ball_direction": 10,
-        "sparse": 100, # paddle touching
-        "solved": 1000, # ball hit opponent
+        "sparse": 100,
+        "solved": 1000,
         'done': -10
     }
 
@@ -55,9 +48,9 @@ class TableTennisEnvV0(BaseV0):
         spec: mujoco.MjSpec = mujoco.MjSpec.from_file(model_path)
         spec = self._preprocess_spec(spec, **preproc_kwargs)  # TODO: confirm this doesn't break pickling
         model_handle = dm_MjModel(spec.compile())
-        self.rwd_history: Dict[str, List] = {}
         super().__init__(model_path=model_handle, obsd_model_path=obsd_model_path, seed=seed, env_credits=self.MYO_CREDIT)
         self._setup(**kwargs)
+
 
     def _setup(self,
             frame_skip: int = 10,
@@ -74,10 +67,6 @@ class TableTennisEnvV0(BaseV0):
 
         self.id_info = IdInfo(self.sim.model)
         self.ball_dofadr = self.sim.model.body_dofadr[self.id_info.ball_bid]
-    
-        for key in weighted_reward_keys.keys():
-            self.rwd_history[key] = []
-        self.rwd_history['dense'] = []
 
         super()._setup(obs_keys=obs_keys,
                     weighted_reward_keys=weighted_reward_keys,
@@ -134,56 +123,23 @@ class TableTennisEnvV0(BaseV0):
         paddle_quat_err = np.linalg.norm(obs_dict['padde_ori_err'], axis=-1)
         torso_err = abs(self.sim.data.qpos[self.sim.model.jnt_qposadr[self.sim.model.joint_name2id('flex_extension')]])
         paddle_touch = obs_dict['touching_info'][0][0] if obs_dict['touching_info'].ndim == 3 else obs_dict['touching_info']
-        
-        own_hit_history = self.rwd_history['own_hit']
-        own_hit_history_rwd = sum(own_hit_history) > 1
-        
-        # Ball Direction Reward
-        opp_side_corners = [np.array([-1.37, -0.72]), np.array([-1.37,  0.80])] # x, y, z
-        ball_direction = obs_dict["ball_vel"] / np.linalg.norm(obs_dict["ball_vel"])
-        is_paddle_hit = sum(self.rwd_history['sparse']) == 1
-        is_opp_hit = sum(self.rwd_history['opp_hit']) == 1
-        
-        # valid_hit_direction_rwd = 0
-        # if is_paddle_hit and not is_opp_hit:
-            
-        #     A = opp_side_corners[0] - obs_dict['ball_pos'][0][0][:2]
-        #     B = opp_side_corners[1] - obs_dict['ball_pos'][0][0][:2]
-        #     V = ball_direction[0][0][:2]
-            
-        #     valid_hit_direction_rwd = ball_angle_reward(is_between_2d(A, B, V))
-        # 3D guassian with positive reward if ball is closer to opponent court and negative reward if ball is closer to own court
-        valid_hit_direction_rwd = reward_3d_above_table(obs_dict['ball_pos'][0][0])
-        
-        
-        # Ball Velocity Reward
-        # Encourages reward if ball velocity is close to original ball velocity which is 5.8 m/s
-        ball_velocity_rwd = np.exp(-1 * (np.linalg.norm(obs_dict['ball_vel']) - 5.8)**2)
-                
         #=========== for the baseline, we provide an h5 file in which you could perform simple imitation learning ===========
             #======== uncomment to load the files and rewards =======================
         #qpos_ref, qvel_ref, qpos_err, qvel_err = self.ref_traj()()
         #ref_qpos_err = np.linalg.norm(qpos_err)
         #ref_qvel_err = np.linalg.norm(qvel_err)
-        
+        # print(f"Observation: {torso_err}")
         rwd_dict = collections.OrderedDict((
             # Perform reward tuning here --
             # Update Optional Keys section below
             # Update reward keys (DEFAULT_RWD_KEYS_AND_WEIGHTS) accordingly to update final rewards
             # Examples: Env comes pre-packaged with two keys pos_dist and rot_dist
             # Optional Keys
-            ('reach_dist', np.exp(-1. * reach_dist)),
-            ('palm_dist', np.exp(-10. * palm_dist)),
-            ('paddle_quat', np.exp(- 5 * paddle_quat_err)),
+            # ('reach_dist', np.exp(-1. * reach_dist)),
+            # ('palm_dist', np.exp(-5. * palm_dist)),
+            # ('paddle_quat', np.exp(- 5 * paddle_quat_err)),
             # ('torso_up', np.exp(-5 * torso_err)),
-            ('torso_up', np.exp(-5 * torso_err**2)),
-            ('opp_hit', (paddle_touch[2] == 1)), # discrete reward for opponent court hit
-            ('net_hit', (paddle_touch[3] == 1)), # discrete reward for net hit
-            ('own_hit', own_hit_history_rwd), # discrete reward for own court hit ignoring the first hit in rally
-            ('ground_hit', (paddle_touch[4] == 1)), # discrete reward for ground hit
-            ('ball_velocity', ball_velocity_rwd),
-            ('ball_direction', valid_hit_direction_rwd),
-            # ('valid_hit_direction', valid_hit_direction_rwd),
+            ('torso_up', -1*(np.exp(-0.5 * torso_err) + np.exp(0.5* torso_err)) + 3),
             #('ref_qpos_err', -1 * ref_qpos_err), use these for your imitation learning script
             #('ref_qvel_err', -1 * ref_qvel_err),
             # Must keys
@@ -196,14 +152,8 @@ class TableTennisEnvV0(BaseV0):
         rwd_dict['dense'] = sum(float(wt) * float(np.array(rwd_dict[key]).squeeze())
                             for key, wt in self.rwd_keys_wt.items()
                                 )
-        # save the reward history
-        for key, value in rwd_dict.items():
-            self.rwd_history[key].append(value)
-        # print(f"Reward: {rwd_dict}")
+        # print(f"Reward: {rwd_dict['torso_up']}")
         return rwd_dict
-    
-    def get_rwd_history(self):
-        return self.rwd_history
     
     def ref_traj(self, traj_path= r"your_h5.h5"):
         """
@@ -328,10 +278,6 @@ class TableTennisEnvV0(BaseV0):
 
         self.init_qvel[self.ball_dofadr : self.ball_dofadr + 3] = self.start_vel
         obs = super().reset(reset_qpos=self.init_qpos, reset_qvel=self.init_qvel,**kwargs)
-        
-        # Reset the reward history
-        for key in self.rwd_history.keys():
-            self.rwd_history[key] = []
 
         return obs
 
