@@ -1,62 +1,88 @@
-""" =================================================
+"""=================================================
 # Copyright (c) MyoSuite Authors
-Authors  :: Cheryl Wang (cheryl.wang.huiyi@gmail.com), Balint Hodossy (bkh16@ic.ac.uk), 
+Authors  :: Cheryl Wang (cheryl.wang.huiyi@gmail.com), Balint Hodossy (bkh16@ic.ac.uk),
             Vikash Kumar (vikashplus@gmail.com), Vittorio Caggiano (caggiano@gmail.com), Guillaume Durandau (guillaume.durandau@mcgill.ca)
-================================================= """
+================================================="""
 
 import collections
-from typing import Dict, List
 import enum
+import os
+from typing import Dict, List
 
-from dm_control.mujoco.wrapper import MjModel as dm_MjModel
-
+import h5py
 import mujoco
 import numpy as np
-from myosuite.utils import gym
-import h5py
-import os
+from dm_control.mujoco.wrapper import MjModel as dm_MjModel
 from scipy.spatial.transform import Rotation as R
 
+from myosuite.agents.utils import reward_3d_above_table
 from myosuite.envs.myo.base_v0 import BaseV0
-from myosuite.utils.spec_processing import recursive_immobilize, recursive_remove_contacts, recursive_mirror
-from myosuite.agents.utils import is_between_2d, ball_angle_reward, reward_3d_above_table
-
+from myosuite.utils import gym
+from myosuite.utils.spec_processing import (
+    recursive_immobilize,
+    recursive_mirror,
+    recursive_remove_contacts,
+)
 
 MAX_TIME = 3.0
 
 
 class TableTennisEnvV0(BaseV0):
 
-    DEFAULT_OBS_KEYS = ['pelvis_pos', 'body_qpos', 'body_qvel', 'ball_pos', 'ball_vel', 'paddle_pos', "paddle_vel", 'paddle_ori', 'reach_err' , "touching_info"]
+    DEFAULT_OBS_KEYS = [
+        "pelvis_pos",
+        "body_qpos",
+        "body_qvel",
+        "ball_pos",
+        "ball_vel",
+        "paddle_pos",
+        "paddle_vel",
+        "paddle_ori",
+        "reach_err",
+        "touching_info",
+    ]
     DEFAULT_RWD_KEYS_AND_WEIGHTS = {
         "reach_dist": 1,
         "palm_dist": 2,
         "paddle_quat": 10,
         "act_reg": 2,
-        'torso_up': 10,
-        #"ref_qpos_err": 1,
-        #"ref_qvel_err": .1,
+        "torso_up": 10,
+        "ref_qpos_err": 10,
+        "ref_qvel_err": 0.1,
         "opp_hit": 200,
         "net_hit": -100,
         "own_hit": -100,
         "ground_hit": -100,
         "ball_velocity": 2,
         "ball_direction": 10,
-        "sparse": 100, # paddle touching
-        "solved": 1000, # ball hit opponent
-        'done': -10
+        "sparse": 100,  # paddle touching
+        "solved": 1000,  # ball hit opponent
+        "done": -10,
     }
 
     def __init__(self, model_path, obsd_model_path=None, seed=None, **kwargs):
         # Two step construction (init+setup) is required for pickling to work correctly.
-        gym.utils.EzPickle.__init__(self, model_path, obsd_model_path, seed, **kwargs)
-        preproc_kwargs = {"remove_body_collisions": kwargs.pop("remove_body_collisions", True),
-                          "add_left_arm": kwargs.pop("add_left_arm", True)}
+        gym.utils.EzPickle.__init__(
+            self, model_path, obsd_model_path, seed, **kwargs
+        )
+        preproc_kwargs = {
+            "remove_body_collisions": kwargs.pop(
+                "remove_body_collisions", True
+            ),
+            "add_left_arm": kwargs.pop("add_left_arm", True),
+        }
         spec: mujoco.MjSpec = mujoco.MjSpec.from_file(model_path)
-        spec = self._preprocess_spec(spec, **preproc_kwargs)  # TODO: confirm this doesn't break pickling
+        spec = self._preprocess_spec(
+            spec, **preproc_kwargs
+        )  # TODO: confirm this doesn't break pickling
         model_handle = dm_MjModel(spec.compile())
         self.rwd_history: Dict[str, List] = {}
-        super().__init__(model_path=model_handle, obsd_model_path=obsd_model_path, seed=seed, env_credits=self.MYO_CREDIT)
+        super().__init__(
+            model_path=model_handle,
+            obsd_model_path=obsd_model_path,
+            seed=seed,
+            env_credits=self.MYO_CREDIT,
+        )
         self._setup(**kwargs)
 
     def _setup(self,
@@ -85,76 +111,112 @@ class TableTennisEnvV0(BaseV0):
     
         for key in weighted_reward_keys.keys():
             self.rwd_history[key] = []
-        self.rwd_history['dense'] = []
+        self.rwd_history["dense"] = []
 
-        super()._setup(obs_keys=obs_keys,
-                    weighted_reward_keys=weighted_reward_keys,
-                    frame_skip=frame_skip,
-                    **kwargs,
+        super()._setup(
+            obs_keys=obs_keys,
+            weighted_reward_keys=weighted_reward_keys,
+            frame_skip=frame_skip,
+            **kwargs,
         )
         keyFrame_id = 0
         self.init_qpos[:] = self.sim.model.key_qpos[keyFrame_id].copy()
-        self.start_vel = np.array([[5.6, 1.6, 0.1] ]) #np.array([[5.5, 1, -2.8] ])
+        self.start_vel = np.array(
+            [[5.6, 1.6, 0.1]]
+        )  # np.array([[5.5, 1, -2.8] ])
         self.init_qvel[self.ball_dofadr : self.ball_dofadr + 3] = self.start_vel
         self.rally_count = rally_count
         self.cur_rally = 0
 
     def get_obs_dict(self, sim):
         obs_dict = {}
-        obs_dict['time'] = np.array([sim.data.time])
+        obs_dict["time"] = np.array([sim.data.time])
 
-        obs_dict['pelvis_pos'] = sim.data.site_xpos[self.sim.model.site_name2id("pelvis")]
+        obs_dict["pelvis_pos"] = sim.data.site_xpos[
+            self.sim.model.site_name2id("pelvis")
+        ]
 
-        obs_dict['body_qpos'] = sim.data.qpos[self.id_info.myo_joint_range].copy()
-        obs_dict['body_qvel'] = sim.data.qvel[self.id_info.myo_dof_range].copy()
+        obs_dict["body_qpos"] = sim.data.qpos[
+            self.id_info.myo_joint_range
+        ].copy()
+        obs_dict["body_qvel"] = sim.data.qvel[self.id_info.myo_dof_range].copy()
 
         obs_dict["ball_pos"] = sim.data.site_xpos[self.id_info.ball_sid]
-        obs_dict["ball_vel"] = self.get_sensor_by_name(sim.model, sim.data, "pingpong_vel_sensor")
+        obs_dict["ball_vel"] = self.get_sensor_by_name(
+            sim.model, sim.data, "pingpong_vel_sensor"
+        )
 
         obs_dict["paddle_pos"] = sim.data.site_xpos[self.id_info.paddle_sid]
-        obs_dict["paddle_vel"] = self.get_sensor_by_name(sim.model, sim.data, "paddle_vel_sensor")
+        obs_dict["paddle_vel"] = self.get_sensor_by_name(
+            sim.model, sim.data, "paddle_vel_sensor"
+        )
         obs_dict["paddle_ori"] = sim.data.body_xquat[self.id_info.paddle_bid]
-        obs_dict['padde_ori_err'] = obs_dict["paddle_ori"] - self.init_paddle_quat
+        obs_dict["padde_ori_err"] = (
+            obs_dict["paddle_ori"] - self.init_paddle_quat
+        )
 
-        obs_dict['reach_err'] = obs_dict['paddle_pos'] - obs_dict['ball_pos']
+        obs_dict["reach_err"] = obs_dict["paddle_pos"] - obs_dict["ball_pos"]
 
-        obs_dict['palm_pos'] = self.sim.data.site_xpos[self.sim.model.site_name2id('S_grasp')]
-        obs_dict['palm_err'] = obs_dict['palm_pos'] - obs_dict['paddle_pos']
+        obs_dict["palm_pos"] = self.sim.data.site_xpos[
+            self.sim.model.site_name2id("S_grasp")
+        ]
+        obs_dict["palm_err"] = obs_dict["palm_pos"] - obs_dict["paddle_pos"]
 
         this_model = sim.model
         this_data = sim.data
 
-        touching_objects = set(get_ball_contact_labels(this_model, this_data, self.id_info))
+        touching_objects = set(
+            get_ball_contact_labels(this_model, this_data, self.id_info)
+        )
         self.contact_trajectory.append(touching_objects)
 
         obs_vec = self._ball_label_to_obs(touching_objects)
         obs_dict["touching_info"] = obs_vec
 
-        if sim.model.na>0:
-            obs_dict['act'] = sim.data.act[:].copy()
+        if sim.model.na > 0:
+            obs_dict["act"] = sim.data.act[:].copy()
         return obs_dict
 
-
     def get_reward_dict(self, obs_dict):
-        reach_dist = np.abs(np.linalg.norm(self.obs_dict['reach_err'], axis=-1))
-        palm_dist = np.abs(np.linalg.norm(self.obs_dict['palm_err'], axis=-1))
-        act_mag = np.linalg.norm(self.obs_dict['act'], axis=-1)/self.sim.model.na if self.sim.model.na !=0 else 0
-        ball_pos = obs_dict["ball_pos"][0][0] if obs_dict['ball_pos'].ndim == 3 else obs_dict['ball_pos']
+        reach_dist = np.abs(np.linalg.norm(self.obs_dict["reach_err"], axis=-1))
+        palm_dist = np.abs(np.linalg.norm(self.obs_dict["palm_err"], axis=-1))
+        act_mag = (
+            np.linalg.norm(self.obs_dict["act"], axis=-1) / self.sim.model.na
+            if self.sim.model.na != 0
+            else 0
+        )
+        ball_pos = (
+            obs_dict["ball_pos"][0][0]
+            if obs_dict["ball_pos"].ndim == 3
+            else obs_dict["ball_pos"]
+        )
         solved = evaluate_pingpong_trajectory(self.contact_trajectory) == None
-        paddle_quat_err = np.linalg.norm(obs_dict['padde_ori_err'], axis=-1)
-        torso_err = abs(self.sim.data.qpos[self.sim.model.jnt_qposadr[self.sim.model.joint_name2id('flex_extension')]])
-        paddle_touch = obs_dict['touching_info'][0][0] if obs_dict['touching_info'].ndim == 3 else obs_dict['touching_info']
-        
-        own_hit_history = self.rwd_history['own_hit']
+        paddle_quat_err = np.linalg.norm(obs_dict["padde_ori_err"], axis=-1)
+        torso_err = abs(
+            self.sim.data.qpos[
+                self.sim.model.jnt_qposadr[
+                    self.sim.model.joint_name2id("flex_extension")
+                ]
+            ]
+        )
+        paddle_touch = (
+            obs_dict["touching_info"][0][0]
+            if obs_dict["touching_info"].ndim == 3
+            else obs_dict["touching_info"]
+        )
+
+        own_hit_history = self.rwd_history["own_hit"]
         own_hit_history_rwd = sum(own_hit_history) > 1
-        
+
         # Ball Direction Reward
         # 3D guassian with positive reward if ball is closer to opponent court and negative reward if ball is closer to own court
-        valid_hit_direction_rwd = reward_3d_above_table(obs_dict['ball_pos'][0][0])
-        
-        
+        valid_hit_direction_rwd = reward_3d_above_table(
+            obs_dict["ball_pos"][0][0]
+        )
+
         # Ball Velocity Reward
         # Encourages reward if ball velocity is close to original ball velocity which is 5.8 m/s
+<<<<<<< HEAD
         ball_velocity_rwd = np.exp(-1 * (np.linalg.norm(obs_dict['ball_vel']) - 5.8)**2)
                 
         #=========== for the baseline, we provide an h5 file in which you could perform simple imitation learning ===========
@@ -204,6 +266,65 @@ class TableTennisEnvV0(BaseV0):
             self.contact_trajectory = []
             self.relaunch_ball()
 =======
+=======
+        ball_velocity_rwd = np.exp(
+            -1 * (np.linalg.norm(obs_dict["ball_vel"]) - 5.8) ** 2
+        )
+
+        # =========== for the baseline, we provide an h5 file in which you could perform simple imitation learning ===========
+        # ======== uncomment to load the files and rewards =======================
+        qpos_ref, qvel_ref, qpos_err, qvel_err = self.ref_traj()()
+        ref_qpos_err = np.linalg.norm(qpos_err)
+        ref_qvel_err = np.linalg.norm(qvel_err)
+
+        rwd_dict = collections.OrderedDict(
+            (
+                # Perform reward tuning here --
+                # Update Optional Keys section below
+                # Update reward keys (DEFAULT_RWD_KEYS_AND_WEIGHTS) accordingly to update final rewards
+                # Examples: Env comes pre-packaged with two keys pos_dist and rot_dist
+                # Optional Keys
+                ("reach_dist", np.exp(-1.0 * reach_dist)),
+                ("palm_dist", np.exp(-10.0 * palm_dist)),
+                ("paddle_quat", np.exp(-5 * paddle_quat_err)),
+                # ('torso_up', np.exp(-5 * torso_err)),
+                ("torso_up", np.exp(-5 * torso_err**2)),
+                (
+                    "opp_hit",
+                    (paddle_touch[2] == 1),
+                ),  # discrete reward for opponent court hit
+                (
+                    "net_hit",
+                    (paddle_touch[3] == 1),
+                ),  # discrete reward for net hit
+                (
+                    "own_hit",
+                    own_hit_history_rwd,
+                ),  # discrete reward for own court hit ignoring the first hit in rally
+                (
+                    "ground_hit",
+                    (paddle_touch[4] == 1),
+                ),  # discrete reward for ground hit
+                ("ball_velocity", ball_velocity_rwd),
+                ("ball_direction", valid_hit_direction_rwd),
+                (
+                    "ref_qpos_err",
+                    -1 * ref_qpos_err,
+                ),  # use these for your imitation learning script
+                ("ref_qvel_err", -1 * ref_qvel_err),
+                # Must keys
+                ("act_reg", -1.0 * act_mag),
+                ("sparse", paddle_touch[0] == 1),  # paddle_touching
+                ("solved", np.array([[solved]])),
+                ("done", np.array([[self._get_done(ball_pos[-1], solved)]])),
+            )
+        )
+
+        rwd_dict["dense"] = sum(
+            float(wt) * float(np.array(rwd_dict[key]).squeeze())
+            for key, wt in self.rwd_keys_wt.items()
+        )
+>>>>>>> Adding h5 file to data dir, added code to take reference trajectory to compare and add reward
         # save the reward history
         for key, value in rwd_dict.items():
             self.rwd_history[key].append(value)
@@ -214,22 +335,148 @@ class TableTennisEnvV0(BaseV0):
 
 >>>>>>> remove stale comments
         return rwd_dict
-    
+
     def get_rwd_history(self):
         return self.rwd_history
-    
-    def ref_traj(self, traj_path= r"your_h5.h5"):
+
+    def ref_traj(
+        self, traj_path="data/trace_resized_trimmed_test_2_compressed.h5"
+    ):
         """
         Returns a function that provides reference (qpos, qvel) and their errors.
         After the end of the reference trajectory, errors are zero and the agent is unconstrained.
         """
+
+        # get pelvis x and y from h5 = 2 jnts
+        # use inverse name map to get 56 jnts
+        # ping pong and paddle = 2 jnts, that makes up all 60 jnts.
+        # freejoint ping pong and paddle have 7 elements each in qpos.
+        # ignoring freejoints pingpong and paddle we have 58 joints
+
         if not hasattr(self, "_ref_traj_cache"):
             if not os.path.isfile(traj_path):
-                raise FileNotFoundError(f"Trajectory file not found: {traj_path}")
+                raise FileNotFoundError(
+                    f"Trajectory file not found: {traj_path}"
+                )
 
-            with h5py.File(traj_path, 'r') as f:
-                qpos_ref = np.array(f['qpos'])  # shape (T, nq)
-                qvel_ref = np.array(f['qvel'])  # shape (T, nv)
+            inverse_name_map = {
+                "pelvis_x": "pelvis_x",
+                "pelvis_y": "pelvis_y",
+                "Abs_t2": "Abs_t2",
+                "Abs_t1": "Abs_t1",
+                "Abs_r3": "Abs_r3",
+                "pro_sup": "pro_sup",
+                "deviation": "deviation",
+                # Spine
+                "L5_S1_Flex_Ext": "flex_extension",
+                "L5_S1_Lat_Bending": "lat_bending",
+                "L5_S1_axial_rotation": "axial_rotation",
+                "L4_L5_Flex_Ext": "L4_L5_FE",
+                "L4_L5_Lat_Bending": "L4_L5_LB",
+                "L4_L5_axial_rotation": "L4_L5_AR",
+                "L3_L4_Flex_Ext": "L3_L4_FE",
+                "L3_L4_Lat_Bending": "L3_L4_LB",
+                "L3_L4_axial_rotation": "L3_L4_AR",
+                "L2_L3_Flex_Ext": "L2_L3_FE",
+                "L2_L3_Lat_Bending": "L2_L3_LB",
+                "L2_L3_axial_rotation": "L2_L3_AR",
+                "L1_L2_Flex_Ext": "L1_L2_FE",
+                "L1_L2_Lat_Bending": "L1_L2_LB",
+                "L1_L2_axial_rotation": "L1_L2_AR",
+                # # Clavicle / scapula
+                "sternoclavicular_r2_r": "sternoclavicular_r2",
+                "sternoclavicular_r3_r": "sternoclavicular_r3",
+                "unrotscap_r3_r": "unrotscap_r3",
+                "unrotscap_r2_r": "unrotscap_r2",
+                "acromioclavicular_r2_r": "acromioclavicular_r2",
+                "acromioclavicular_r3_r": "acromioclavicular_r3",
+                "acromioclavicular_r1_r": "acromioclavicular_r1",
+                # # Humerus / arm
+                "unrothum_r1_r": "unrothum_r1",
+                "unrothum_r3_r": "unrothum_r3",
+                "unrothum_r2_r": "unrothum_r2",
+                "elv_angle_r": "elv_angle",
+                "shoulder_elv_r": "shoulder_elv",
+                "shoulder1_r2_r": "shoulder1_r2",
+                "shoulder_rot_r": "shoulder_rot",
+                "elbow_flex_r": "elbow_flexion",
+                # # Wrist & thumb
+                "flexion_r": "flexion",
+                "cmc_abduction_r": "cmc_abduction",
+                "cmc_flexion_r": "cmc_flexion",
+                "mp_flexion_r": "mp_flexion",
+                "ip_flexion_r": "ip_flexion",
+                # # Fingers
+                "mcp2_flexion_r": "mcp2_flexion",
+                "mcp2_abduction_r": "mcp2_abduction",
+                "pm2_flexion_r": "pm2_flexion",
+                "md2_flexion_r": "md2_flexion",
+                "mcp3_flexion_r": "mcp3_flexion",
+                "mcp3_abduction_r": "mcp3_abduction",
+                "pm3_flexion_r": "pm3_flexion",
+                "md3_flexion_r": "md3_flexion",
+                "mcp4_flexion_r": "mcp4_flexion",
+                "mcp4_abduction_r": "mcp4_abduction",
+                "pm4_flexion_r": "pm4_flexion",
+                "md4_flexion_r": "md4_flexion",
+                "mcp5_flexion_r": "mcp5_flexion",
+                "mcp5_abduction_r": "mcp5_abduction",
+                "pm5_flexion_r": "pm5_flexion",
+                "md5_flexion_r": "md5_flexion",
+                # # Freejoints
+                # "paddle_freejoint": "paddle_freejoint",
+                # "pingpong_freejoint": "pingpong_freejoint",
+            }
+        name_map = {v: k for k, v in inverse_name_map.items()}
+        if not hasattr(self, "_ref_traj_cache"):
+            if not os.path.isfile(traj_path):
+                raise FileNotFoundError(
+                    f"Trajectory file not found: {traj_path}"
+                )
+
+            with h5py.File(traj_path, "r") as f:
+                motion_name = list(f.keys())[0]
+                grp = f[motion_name]
+                timesteps = np.array(grp["time"])
+                horizon = timesteps.shape[0]
+                qpos = dict(grp["qpos"])
+                qvel = dict(grp["qvel"])
+
+                pos_data = {
+                    joint: np.array(values).flatten()
+                    for joint, values in qpos.items()
+                    if joint != "myoskeleton_root"
+                }
+                pelvis_x = qpos["myoskeleton_root"][:, 0]
+                pelvis_y = qpos["myoskeleton_root"][:, 1]
+                pelvis_x_mean = np.mean(pelvis_x)
+                pelvis_y_mean = np.mean(pelvis_y)
+                pos_data["pelvis_x"] = pelvis_x - pelvis_x_mean
+                pos_data["pelvis_y"] = pelvis_y - pelvis_y_mean
+
+                vel_data = {
+                    joint: np.array(values).flatten()
+                    for joint, values in qvel.items()
+                    if joint != "myoskeleton_root"
+                }
+                pelvis_x_vel = qvel["myoskeleton_root"][:, 0]
+                pelvis_y_vel = qvel["myoskeleton_root"][:, 1]
+                vel_data["pelvis_x"] = pelvis_x_vel
+                vel_data["pelvis_y"] = pelvis_y_vel
+                pelvis_x_vel_mean = np.mean(pelvis_x_vel)
+                pelvis_y_vel_mean = np.mean(pelvis_y_vel)
+                vel_data["pelvis_x"] = pelvis_x_vel - pelvis_x_vel_mean
+                vel_data["pelvis_y"] = pelvis_y_vel - pelvis_y_vel_mean
+
+                qpos_ref = np.zeros((horizon, self.sim.data.qpos.shape[0]))
+                qvel_ref = np.zeros((horizon, self.sim.data.qvel.shape[0]))
+
+                # 58-64 is pingpong and 65-72 is paddle which are not present in h5 file
+                for i in range(0, 58):
+                    joint_name = self.sim.model.joint(i).name
+                    jnt_idx = self.sim.model.jnt_qposadr[i]
+                    qpos_ref[:, jnt_idx] = pos_data[name_map[joint_name]]
+                    qvel_ref[:, jnt_idx] = vel_data[name_map[joint_name]]
 
             self._ref_dt = self.sim.model.opt.timestep
             self._ref_traj_cache = {
@@ -262,10 +509,10 @@ class TableTennisEnvV0(BaseV0):
         return _get_ref
 
     def _get_done(self, z, solved):
-        if self.obs_dict['time'] > MAX_TIME:
+        if self.obs_dict["time"] > MAX_TIME:
             return 1
         elif z < 0.3:
-            self.obs_dict['time'] = MAX_TIME
+            self.obs_dict["time"] = MAX_TIME
             return 1
         elif solved:
             return 1
@@ -293,7 +540,6 @@ class TableTennisEnvV0(BaseV0):
                 obs_vec[5] += 1
         return obs_vec
 
-
     def get_metrics(self, paths, successful_steps=1):
         """
         Evaluate paths and report metrics
@@ -304,29 +550,37 @@ class TableTennisEnvV0(BaseV0):
         # average sucess over entire env horizon
         for path in paths:
             # record success if solved for provided successful_steps
-            if np.sum(path['env_infos']['rwd_dict']['solved'] * 1.0) >= successful_steps:
+            if (
+                np.sum(path["env_infos"]["rwd_dict"]["solved"] * 1.0)
+                >= successful_steps
+            ):
                 num_success += 1
-        score = num_success/num_paths
+        score = num_success / num_paths
 
         # average activations over entire trajectory (can be shorter than horizon, if done) realized
+<<<<<<< HEAD
         effort = -1.0*np.mean([np.mean(p['env_infos']['rwd_dict']['act_reg']) for p in paths])
+=======
+        effort = 1.0 * np.mean(
+            [np.mean(p["env_infos"]["rwd_dict"]["act_reg"]) for p in paths]
+        )
+>>>>>>> Adding h5 file to data dir, added code to take reference trajectory to compare and add reward
 
         metrics = {
-            'score': score,
-            'effort':effort,
-            }
+            "score": score,
+            "effort": effort,
+        }
         return metrics
-    
+
     def get_sensor_by_name(self, model, data, name):
         sensor_id = model.sensor_name2id(name)
         start = model.sensor_adr[sensor_id]
         dim = model.sensor_dim[sensor_id]
-        return data.sensordata[start:start+dim]
-
+        return data.sensordata[start : start + dim]
 
     def reset(self, reset_qpos=None, reset_qvel=None, **kwargs):
-        #self.sim.model.body_pos[self.object_bid] = self.np_random.uniform(**self.target_xyz_range)
-        #self.sim.model.body_quat[self.object_bid] = euler2quat(self.np_random.uniform(**self.target_rxryrz_range))
+        # self.sim.model.body_pos[self.object_bid] = self.np_random.uniform(**self.target_xyz_range)
+        # self.sim.model.body_quat[self.object_bid] = euler2quat(self.np_random.uniform(**self.target_rxryrz_range))
         self.contact_trajectory = []
         self.init_qpos[:] = self.sim.model.key_qpos[0].copy()
 
@@ -340,6 +594,7 @@ class TableTennisEnvV0(BaseV0):
             self.sim.model.geom_friction[self.id_info.ball_gid] = self.np_random.uniform(**self.ball_friction_range)
 
         if self.ball_xyz_range is not None:
+<<<<<<< HEAD
             ball_pos = self.np_random.uniform(**self.ball_xyz_range)
             self.sim.model.body_pos[self.id_info.ball_bid] = ball_pos
             self.init_qpos[self.ball_posadr : self.ball_posadr + 3] = ball_pos
@@ -347,6 +602,22 @@ class TableTennisEnvV0(BaseV0):
         if self.qpos_noise_range is not None:
             joint_ranges = self.sim.model.jnt_range[:, 1] - self.sim.model.jnt_range[:, 0]
             noise_fraction = self.np_random.uniform(**self.qpos_noise_range, size=joint_ranges.shape)
+=======
+            self.sim.model.body_pos[self.id_info.ball_bid] = (
+                self.np_random.uniform(**self.ball_xyz_range)
+            )
+            self.init_qpos[self.ball_dofadr + 1 : self.ball_dofadr + 4] = (
+                self.np_random.uniform(**self.ball_xyz_range)
+            )
+        # randomize init arms pose
+        if self.qpos_noise_range is not None:
+            reset_qpos_local = self.init_qpos + self.qpos_noise_range * (
+                self.sim.model.jnt_range[:, 1] - self.sim.model.jnt_range[:, 0]
+            )
+            reset_qpos_local[-6:] = self.init_qpos[-6:]
+        else:
+            reset_qpos_local = reset_qpos
+>>>>>>> Adding h5 file to data dir, added code to take reference trajectory to compare and add reward
 
             reset_qpos_local = self.init_qpos.copy()
 
@@ -373,8 +644,10 @@ class TableTennisEnvV0(BaseV0):
         self.cur_rally = 0
 =======
         self.init_qvel[self.ball_dofadr : self.ball_dofadr + 3] = self.start_vel
-        obs = super().reset(reset_qpos=self.init_qpos, reset_qvel=self.init_qvel,**kwargs)
-        
+        obs = super().reset(
+            reset_qpos=self.init_qpos, reset_qvel=self.init_qvel, **kwargs
+        )
+
         # Reset the reward history
         for key in self.rwd_history.keys():
             self.rwd_history[key] = []
@@ -431,17 +704,25 @@ class TableTennisEnvV0(BaseV0):
         # We unnormalize robotic actuators of the "locomotion", muscle ones are handled in the parent implementation
         processed_controls = a.copy()
         if self.normalize_act:
-            robotic_act_ind = self.sim.model.actuator_dyntype != mujoco.mjtDyn.mjDYN_MUSCLE
-            processed_controls[robotic_act_ind] = (np.mean(self.sim.model.actuator_ctrlrange[robotic_act_ind], axis=-1)
-                                                   + processed_controls[robotic_act_ind]
-                                                   * (self.sim.model.actuator_ctrlrange[robotic_act_ind, 1]
-                                                      - self.sim.model.actuator_ctrlrange[robotic_act_ind, 0]) / 2.0)
+            robotic_act_ind = (
+                self.sim.model.actuator_dyntype != mujoco.mjtDyn.mjDYN_MUSCLE
+            )
+            processed_controls[robotic_act_ind] = (
+                np.mean(
+                    self.sim.model.actuator_ctrlrange[robotic_act_ind], axis=-1
+                )
+                + processed_controls[robotic_act_ind]
+                * (
+                    self.sim.model.actuator_ctrlrange[robotic_act_ind, 1]
+                    - self.sim.model.actuator_ctrlrange[robotic_act_ind, 0]
+                )
+                / 2.0
+            )
         return super().step(processed_controls, **kwargs)
 
-    def _preprocess_spec(self,
-                         spec,
-                         remove_body_collisions=True,
-                         add_left_arm=True):
+    def _preprocess_spec(
+        self, spec, remove_body_collisions=True, add_left_arm=True
+    ):
         # We'll process the string path to:
         # - add contralateral limb
         # - immobilize leg
@@ -452,27 +733,42 @@ class TableTennisEnvV0(BaseV0):
         for paddle_b in spec.bodies:
             if "paddle" in paddle_b.name and paddle_b.parent != spec.worldbody:
                 import warnings
-                warnings.warn("A paddle was found that was not a free body. Confirm this is intended.")
+
+                warnings.warn(
+                    "A paddle was found that was not a free body. Confirm this is intended."
+                )
         for s in spec.sensors:
             if "pingpong" not in s.name and "paddle" not in s.name:
                 s.delete()
         temp_model = spec.compile()
 
-        removed_ids = recursive_immobilize(spec, temp_model, spec.body("femur_l"), remove_eqs=True)
-        removed_ids.extend(recursive_immobilize(spec, temp_model, spec.body("femur_r"), remove_eqs=True))
+        removed_ids = recursive_immobilize(
+            spec, temp_model, spec.body("femur_l"), remove_eqs=True
+        )
+        removed_ids.extend(
+            recursive_immobilize(
+                spec, temp_model, spec.body("femur_r"), remove_eqs=True
+            )
+        )
 
         for key in spec.keys:
-            key.qpos = [j for i, j in enumerate(key.qpos) if i not in removed_ids]
+            key.qpos = [
+                j for i, j in enumerate(key.qpos) if i not in removed_ids
+            ]
 
         if remove_body_collisions:
-            recursive_remove_contacts(spec.body("full_body"), return_condition=lambda b: "radius" in b.name)
+            recursive_remove_contacts(
+                spec.body("full_body"),
+                return_condition=lambda b: "radius" in b.name,
+            )
 
         if add_left_arm:
             torso = spec.body("torso")
 
             spec_copy: mujoco.MjSpec = spec.copy()
-            attachment_frame = torso.add_frame(quat=[0.5, 0.5, -0.5, 0.5],
-                                               pos=[0.05, 0.373, -0.04])
+            attachment_frame = torso.add_frame(
+                quat=[0.5, 0.5, -0.5, 0.5], pos=[0.05, 0.373, -0.04]
+            )
             [k.delete() for k in spec_copy.keys]
             [t.delete() for t in spec_copy.textures]
             [m.delete() for m in spec_copy.materials]
@@ -482,11 +778,15 @@ class TableTennisEnvV0(BaseV0):
             [s.delete() for s in spec_copy.sensors]
             [c.delete() for c in spec_copy.cameras]
             recursive_immobilize(spec, temp_model, spec_copy.worldbody)
-            recursive_remove_contacts(spec_copy.worldbody, return_condition=None)
+            recursive_remove_contacts(
+                spec_copy.worldbody, return_condition=None
+            )
 
             meshes_to_mirror = set()
 
-            recursive_mirror(meshes_to_mirror, spec_copy, spec_copy.body("clavicle"))
+            recursive_mirror(
+                meshes_to_mirror, spec_copy, spec_copy.body("clavicle")
+            )
             for mesh in spec_copy.meshes:
                 if mesh.name in meshes_to_mirror:
                     mesh.name += "_mirrored"
@@ -495,11 +795,10 @@ class TableTennisEnvV0(BaseV0):
                     mesh.delete()
 
             attachment_frame.attach_body(spec_copy.body("clavicle_mirrored"))
-            spec.body("ulna_mirrored").quat =[0.546, 0, 0, -0.838]
-            spec.body("humerus_mirrored").quat = [ 0.924, 0.383, 0, 0]
+            spec.body("ulna_mirrored").quat = [0.546, 0, 0, -0.838]
+            spec.body("humerus_mirrored").quat = [0.924, 0.383, 0, 0]
             pass
         return spec
-
 
 
 class IdInfo:
@@ -517,26 +816,39 @@ class IdInfo:
         self.ground_gid = model.geom("ground").id
         self.net_gid = model.geom("coll_net").id
 
-        myo_bodies = [model.body(i).id for i in range(model.nbody)
-                      if not model.body(i).name.startswith("ping")
-                      and "paddle" not in model.body(i).name
-                      and not model.body(i).name in ["pingpong"]]
+        myo_bodies = [
+            model.body(i).id
+            for i in range(model.nbody)
+            if not model.body(i).name.startswith("ping")
+            and "paddle" not in model.body(i).name
+            and model.body(i).name not in ["pingpong"]
+        ]
         self.myo_body_range = (min(myo_bodies), max(myo_bodies))
 
         # TODO add locomotion joint ids
 
-        self.myo_joint_range = np.concatenate([model.joint(i).qposadr for i in range(model.njnt)
-                                            if not model.joint(i).name.startswith("ping")
-                                            and not model.joint(i).name == "pingpong_freejoint"
-                                            and not model.joint(i).name == "paddle_freejoint"])
+        self.myo_joint_range = np.concatenate(
+            [
+                model.joint(i).qposadr
+                for i in range(model.njnt)
+                if not model.joint(i).name.startswith("ping")
+                and not model.joint(i).name == "pingpong_freejoint"
+                and not model.joint(i).name == "paddle_freejoint"
+            ]
+        )
 
-        self.myo_dof_range = np.concatenate([model.joint(i).dofadr for i in range(model.njnt)
-                                            if not model.joint(i).name.startswith("ping")
-                                            and not model.joint(i).name == "paddle_freejoint"])
+        self.myo_dof_range = np.concatenate(
+            [
+                model.joint(i).dofadr
+                for i in range(model.njnt)
+                if not model.joint(i).name.startswith("ping")
+                and not model.joint(i).name == "paddle_freejoint"
+            ]
+        )
 
 
 class PingpongContactLabels(enum.Enum):
-    PADDLE = 0 # TODO: Remove collisions with myo
+    PADDLE = 0  # TODO: Remove collisions with myo
     OWN = 1
     OPPONENT = 2
     GROUND = 3
@@ -551,7 +863,9 @@ class ContactTrajIssue(enum.Enum):
     DOUBLE_TOUCH = 3
 
 
-def get_ball_contact_labels(model: mujoco.MjModel, data: mujoco.MjData, id_info: IdInfo):
+def get_ball_contact_labels(
+    model: mujoco.MjModel, data: mujoco.MjData, id_info: IdInfo
+):
     for con in data.contact:
         if model.geom(con.geom1).bodyid == id_info.ball_bid:
             yield geom_id_to_label(con.geom2, id_info)
@@ -595,7 +909,9 @@ def evaluate_pingpong_trajectory(contact_trajectory: List[set]):
                 own_contact_count = 1
             elif not own_contact_phase_done:
                 own_contact_count += 1
-                if own_contact_count > 2: #initial serving bounce has contact for 2 timesteps
+                if (
+                    own_contact_count > 2
+                ):  # initial serving bounce has contact for 2 timesteps
                     own_contact_phase_done = True
                     return ContactTrajIssue.OWN_HALF
             else:
