@@ -494,8 +494,9 @@ class TableTennisEnvV0(BaseV0):
             if idx < self._ref_traj_cache["T"]:
                 qpos_ref = self._ref_traj_cache["qpos"][idx]
                 qvel_ref = self._ref_traj_cache["qvel"][idx]
-                qpos_err = qpos_ref - self.sim.data.qpos
-                qvel_err = qvel_ref - self.sim.data.qvel
+                # Ignore error for last 14 elements as paddle and pingpong trajectory are not in the reference
+                qpos_err = qpos_ref[:-14] - self.sim.data.qpos[:-14]
+                qvel_err = qvel_ref[:-14] - self.sim.data.qvel[:-14]
             else:
                 nq = self._ref_traj_cache["nq"]
                 nv = self._ref_traj_cache["nv"]
