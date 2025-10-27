@@ -26,6 +26,75 @@ from myosuite.utils.spec_processing import (
 
 MAX_TIME = 3.0
 
+inverse_name_map = {
+                "pelvis_x": "pelvis_x",
+                "pelvis_y": "pelvis_y",
+                "Abs_t2": "Abs_t2",
+                "Abs_t1": "Abs_t1",
+                "Abs_r3": "Abs_r3",
+                "pro_sup": "pro_sup",
+                "deviation": "deviation",
+                # Spine
+                "L5_S1_Flex_Ext": "flex_extension",
+                "L5_S1_Lat_Bending": "lat_bending",
+                "L5_S1_axial_rotation": "axial_rotation",
+                "L4_L5_Flex_Ext": "L4_L5_FE",
+                "L4_L5_Lat_Bending": "L4_L5_LB",
+                "L4_L5_axial_rotation": "L4_L5_AR",
+                "L3_L4_Flex_Ext": "L3_L4_FE",
+                "L3_L4_Lat_Bending": "L3_L4_LB",
+                "L3_L4_axial_rotation": "L3_L4_AR",
+                "L2_L3_Flex_Ext": "L2_L3_FE",
+                "L2_L3_Lat_Bending": "L2_L3_LB",
+                "L2_L3_axial_rotation": "L2_L3_AR",
+                "L1_L2_Flex_Ext": "L1_L2_FE",
+                "L1_L2_Lat_Bending": "L1_L2_LB",
+                "L1_L2_axial_rotation": "L1_L2_AR",
+                # # Clavicle / scapula
+                "sternoclavicular_r2_r": "sternoclavicular_r2",
+                "sternoclavicular_r3_r": "sternoclavicular_r3",
+                "unrotscap_r3_r": "unrotscap_r3",
+                "unrotscap_r2_r": "unrotscap_r2",
+                "acromioclavicular_r2_r": "acromioclavicular_r2",
+                "acromioclavicular_r3_r": "acromioclavicular_r3",
+                "acromioclavicular_r1_r": "acromioclavicular_r1",
+                # # Humerus / arm
+                "unrothum_r1_r": "unrothum_r1",
+                "unrothum_r3_r": "unrothum_r3",
+                "unrothum_r2_r": "unrothum_r2",
+                "elv_angle_r": "elv_angle",
+                "shoulder_elv_r": "shoulder_elv",
+                "shoulder1_r2_r": "shoulder1_r2",
+                "shoulder_rot_r": "shoulder_rot",
+                "elbow_flex_r": "elbow_flexion",
+                # # Wrist & thumb
+                "flexion_r": "flexion",
+                "cmc_abduction_r": "cmc_abduction",
+                "cmc_flexion_r": "cmc_flexion",
+                "mp_flexion_r": "mp_flexion",
+                "ip_flexion_r": "ip_flexion",
+                # # Fingers
+                "mcp2_flexion_r": "mcp2_flexion",
+                "mcp2_abduction_r": "mcp2_abduction",
+                "pm2_flexion_r": "pm2_flexion",
+                "md2_flexion_r": "md2_flexion",
+                "mcp3_flexion_r": "mcp3_flexion",
+                "mcp3_abduction_r": "mcp3_abduction",
+                "pm3_flexion_r": "pm3_flexion",
+                "md3_flexion_r": "md3_flexion",
+                "mcp4_flexion_r": "mcp4_flexion",
+                "mcp4_abduction_r": "mcp4_abduction",
+                "pm4_flexion_r": "pm4_flexion",
+                "md4_flexion_r": "md4_flexion",
+                "mcp5_flexion_r": "mcp5_flexion",
+                "mcp5_abduction_r": "mcp5_abduction",
+                "pm5_flexion_r": "pm5_flexion",
+                "md5_flexion_r": "md5_flexion",
+                # # Freejoints
+                # "paddle_freejoint": "paddle_freejoint",
+                # "pingpong_freejoint": "pingpong_freejoint",
+            }
+
 
 class TableTennisEnvV0(BaseV0):
 
@@ -359,74 +428,6 @@ class TableTennisEnvV0(BaseV0):
                     f"Trajectory file not found: {traj_path}"
                 )
 
-            inverse_name_map = {
-                "pelvis_x": "pelvis_x",
-                "pelvis_y": "pelvis_y",
-                "Abs_t2": "Abs_t2",
-                "Abs_t1": "Abs_t1",
-                "Abs_r3": "Abs_r3",
-                "pro_sup": "pro_sup",
-                "deviation": "deviation",
-                # Spine
-                "L5_S1_Flex_Ext": "flex_extension",
-                "L5_S1_Lat_Bending": "lat_bending",
-                "L5_S1_axial_rotation": "axial_rotation",
-                "L4_L5_Flex_Ext": "L4_L5_FE",
-                "L4_L5_Lat_Bending": "L4_L5_LB",
-                "L4_L5_axial_rotation": "L4_L5_AR",
-                "L3_L4_Flex_Ext": "L3_L4_FE",
-                "L3_L4_Lat_Bending": "L3_L4_LB",
-                "L3_L4_axial_rotation": "L3_L4_AR",
-                "L2_L3_Flex_Ext": "L2_L3_FE",
-                "L2_L3_Lat_Bending": "L2_L3_LB",
-                "L2_L3_axial_rotation": "L2_L3_AR",
-                "L1_L2_Flex_Ext": "L1_L2_FE",
-                "L1_L2_Lat_Bending": "L1_L2_LB",
-                "L1_L2_axial_rotation": "L1_L2_AR",
-                # # Clavicle / scapula
-                "sternoclavicular_r2_r": "sternoclavicular_r2",
-                "sternoclavicular_r3_r": "sternoclavicular_r3",
-                "unrotscap_r3_r": "unrotscap_r3",
-                "unrotscap_r2_r": "unrotscap_r2",
-                "acromioclavicular_r2_r": "acromioclavicular_r2",
-                "acromioclavicular_r3_r": "acromioclavicular_r3",
-                "acromioclavicular_r1_r": "acromioclavicular_r1",
-                # # Humerus / arm
-                "unrothum_r1_r": "unrothum_r1",
-                "unrothum_r3_r": "unrothum_r3",
-                "unrothum_r2_r": "unrothum_r2",
-                "elv_angle_r": "elv_angle",
-                "shoulder_elv_r": "shoulder_elv",
-                "shoulder1_r2_r": "shoulder1_r2",
-                "shoulder_rot_r": "shoulder_rot",
-                "elbow_flex_r": "elbow_flexion",
-                # # Wrist & thumb
-                "flexion_r": "flexion",
-                "cmc_abduction_r": "cmc_abduction",
-                "cmc_flexion_r": "cmc_flexion",
-                "mp_flexion_r": "mp_flexion",
-                "ip_flexion_r": "ip_flexion",
-                # # Fingers
-                "mcp2_flexion_r": "mcp2_flexion",
-                "mcp2_abduction_r": "mcp2_abduction",
-                "pm2_flexion_r": "pm2_flexion",
-                "md2_flexion_r": "md2_flexion",
-                "mcp3_flexion_r": "mcp3_flexion",
-                "mcp3_abduction_r": "mcp3_abduction",
-                "pm3_flexion_r": "pm3_flexion",
-                "md3_flexion_r": "md3_flexion",
-                "mcp4_flexion_r": "mcp4_flexion",
-                "mcp4_abduction_r": "mcp4_abduction",
-                "pm4_flexion_r": "pm4_flexion",
-                "md4_flexion_r": "md4_flexion",
-                "mcp5_flexion_r": "mcp5_flexion",
-                "mcp5_abduction_r": "mcp5_abduction",
-                "pm5_flexion_r": "pm5_flexion",
-                "md5_flexion_r": "md5_flexion",
-                # # Freejoints
-                # "paddle_freejoint": "paddle_freejoint",
-                # "pingpong_freejoint": "pingpong_freejoint",
-            }
         name_map = {v: k for k, v in inverse_name_map.items()}
         if not hasattr(self, "_ref_traj_cache"):
             if not os.path.isfile(traj_path):
