@@ -285,57 +285,6 @@ class TableTennisEnvV0(BaseV0):
 
         # Ball Velocity Reward
         # Encourages reward if ball velocity is close to original ball velocity which is 5.8 m/s
-<<<<<<< HEAD
-        ball_velocity_rwd = np.exp(-1 * (np.linalg.norm(obs_dict['ball_vel']) - 5.8)**2)
-                
-        #=========== for the baseline, we provide an h5 file in which you could perform simple imitation learning ===========
-            #======== uncomment to load the files and rewards =======================
-        #qpos_ref, qvel_ref, qpos_err, qvel_err = self.ref_traj()()
-        #ref_qpos_err = np.linalg.norm(qpos_err)
-        #ref_qvel_err = np.linalg.norm(qvel_err)
-        
-        rwd_dict = collections.OrderedDict((
-            # Perform reward tuning here --
-            # Update Optional Keys section below
-            # Update reward keys (DEFAULT_RWD_KEYS_AND_WEIGHTS) accordingly to update final rewards
-            # Examples: Env comes pre-packaged with two keys pos_dist and rot_dist
-            # Optional Keys
-            ('reach_dist', np.exp(-1. * reach_dist)),
-            ('palm_dist', np.exp(-10. * palm_dist)),
-            ('paddle_quat', np.exp(- 5 * paddle_quat_err)),
-            # ('torso_up', np.exp(-5 * torso_err)),
-            ('torso_up', np.exp(-5 * torso_err**2)),
-            ('opp_hit', (paddle_touch[2] == 1)), # discrete reward for opponent court hit
-            ('net_hit', (paddle_touch[3] == 1)), # discrete reward for net hit
-            ('own_hit', own_hit_history_rwd), # discrete reward for own court hit ignoring the first hit in rally
-            ('ground_hit', (paddle_touch[4] == 1)), # discrete reward for ground hit
-            ('ball_velocity', ball_velocity_rwd),
-            ('ball_direction', valid_hit_direction_rwd),
-            #('ref_qpos_err', -1 * ref_qpos_err), use these for your imitation learning script
-            #('ref_qvel_err', -1 * ref_qvel_err),
-            # Must keys
-            ('act_reg', -1.*act_mag),
-            ('sparse', paddle_touch[0] == 1), #paddle_touching
-            ('solved', np.array([[solved]])),
-            ('done', np.array([[self._get_done(ball_pos[-1], solved)]])),
-        ))
-
-        rwd_dict['dense'] = sum(float(wt) * float(np.array(rwd_dict[key]).squeeze())
-                            for key, wt in self.rwd_keys_wt.items()
-                                )
-<<<<<<< HEAD
-
-        if rwd_dict['solved']:
-            self.cur_rally += 1
-        if rwd_dict['solved'] and self.cur_rally < self.rally_count:
-            rwd_dict['done'] = False
-            rwd_dict['solved'] = False
-            self.obs_dict['time'] = 0
-            self.sim.data.time = 0
-            self.contact_trajectory = []
-            self.relaunch_ball()
-=======
-=======
         ball_velocity_rwd = np.exp(
             -1 * (np.linalg.norm(obs_dict["ball_vel"]) - 5.8) ** 2
         )
@@ -393,16 +342,21 @@ class TableTennisEnvV0(BaseV0):
             float(wt) * float(np.array(rwd_dict[key]).squeeze())
             for key, wt in self.rwd_keys_wt.items()
         )
->>>>>>> Adding h5 file to data dir, added code to take reference trajectory to compare and add reward
+
+        if rwd_dict['solved']:
+            self.cur_rally += 1
+        if rwd_dict['solved'] and self.cur_rally < self.rally_count:
+            rwd_dict['done'] = False
+            rwd_dict['solved'] = False
+            self.obs_dict['time'] = 0
+            self.sim.data.time = 0
+            self.contact_trajectory = []
+            self.relaunch_ball()
+
         # save the reward history
         for key, value in rwd_dict.items():
             self.rwd_history[key].append(value)
-<<<<<<< HEAD
-        # print(f"Reward: {rwd_dict}")
->>>>>>> modified reward functions for torso, ball vel, ball dir. Added rwd functions for ground hit, own hit, opp hit, net hit
-=======
 
->>>>>>> remove stale comments
         return rwd_dict
 
     def get_rwd_history(self):
@@ -560,13 +514,7 @@ class TableTennisEnvV0(BaseV0):
         score = num_success / num_paths
 
         # average activations over entire trajectory (can be shorter than horizon, if done) realized
-<<<<<<< HEAD
         effort = -1.0*np.mean([np.mean(p['env_infos']['rwd_dict']['act_reg']) for p in paths])
-=======
-        effort = 1.0 * np.mean(
-            [np.mean(p["env_infos"]["rwd_dict"]["act_reg"]) for p in paths]
-        )
->>>>>>> Adding h5 file to data dir, added code to take reference trajectory to compare and add reward
 
         metrics = {
             "score": score,
@@ -596,15 +544,6 @@ class TableTennisEnvV0(BaseV0):
             self.sim.model.geom_friction[self.id_info.ball_gid] = self.np_random.uniform(**self.ball_friction_range)
 
         if self.ball_xyz_range is not None:
-<<<<<<< HEAD
-            ball_pos = self.np_random.uniform(**self.ball_xyz_range)
-            self.sim.model.body_pos[self.id_info.ball_bid] = ball_pos
-            self.init_qpos[self.ball_posadr : self.ball_posadr + 3] = ball_pos
-        
-        if self.qpos_noise_range is not None:
-            joint_ranges = self.sim.model.jnt_range[:, 1] - self.sim.model.jnt_range[:, 0]
-            noise_fraction = self.np_random.uniform(**self.qpos_noise_range, size=joint_ranges.shape)
-=======
             self.sim.model.body_pos[self.id_info.ball_bid] = (
                 self.np_random.uniform(**self.ball_xyz_range)
             )
@@ -619,7 +558,6 @@ class TableTennisEnvV0(BaseV0):
             reset_qpos_local[-6:] = self.init_qpos[-6:]
         else:
             reset_qpos_local = reset_qpos
->>>>>>> Adding h5 file to data dir, added code to take reference trajectory to compare and add reward
 
             reset_qpos_local = self.init_qpos.copy()
 
@@ -635,7 +573,6 @@ class TableTennisEnvV0(BaseV0):
         else:
             reset_qpos_local = reset_qpos if reset_qpos is not None else self.init_qpos
 
-<<<<<<< HEAD
         if self.ball_qvel:            
             v_bounds = self.cal_ball_qvel(ball_pos)
             v_low, v_high = v_bounds[1], v_bounds[0]
@@ -644,16 +581,6 @@ class TableTennisEnvV0(BaseV0):
         obs = super().reset(reset_qpos=reset_qpos_local, reset_qvel=self.init_qvel,**kwargs)
 
         self.cur_rally = 0
-=======
-        self.init_qvel[self.ball_dofadr : self.ball_dofadr + 3] = self.start_vel
-        obs = super().reset(
-            reset_qpos=self.init_qpos, reset_qvel=self.init_qvel, **kwargs
-        )
-
-        # Reset the reward history
-        for key in self.rwd_history.keys():
-            self.rwd_history[key] = []
->>>>>>> modified reward functions for torso, ball vel, ball dir. Added rwd functions for ground hit, own hit, opp hit, net hit
 
         return obs
 
