@@ -1,15 +1,17 @@
 import warnings
+
 warnings.filterwarnings('ignore')
 
-import myosuite
-from myosuite.utils import gym
-import skvideo.io
-from tqdm import tqdm
-import numpy as np
-from stable_baselines3 import PPO
 from datetime import datetime
 
+import numpy as np
+import skvideo.io
+from stable_baselines3 import PPO
+from tqdm import tqdm
+
+import myosuite
 from myosuite.agents.utils import custom_action
+from myosuite.utils import gym
 
 env = gym.make('myoChallengeTableTennisP1-v0', max_episode_steps=300) # create a training environment 
 obs, info = env.reset() # reset the environment, creates a new episode
@@ -22,7 +24,7 @@ side_frames = []
 all_rewards = [] # placeholder for all rewards
 data_store = [] # store the data
 
-num_episodes = 20
+num_episodes = 1
 
 # calculate the reward from 10 epsiode
 hit_debug = []
@@ -78,5 +80,5 @@ print(f"Score: {metrics['score']}, Effort: {metrics['effort']}")
 
 env.close()
 # # make a local copy
-skvideo.io.vwrite(f'myoChallengeSoccer_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.mp4', np.asarray(front_frames),inputdict = {'-r': '100'}, outputdict={"-pix_fmt": "yuv420p"})
-skvideo.io.vwrite(f'myoChallengeSoccer_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.mp4', np.asarray(side_frames),inputdict = {'-r': '100'}, outputdict={"-pix_fmt": "yuv420p"})
+skvideo.io.vwrite(f'myoChallengePingPong_front_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.mp4', np.asarray(front_frames),inputdict = {'-r': '100'}, outputdict={"-pix_fmt": "yuv420p"})
+skvideo.io.vwrite(f'myoChallengePingPong_side_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.mp4', np.asarray(side_frames),inputdict = {'-r': '100'}, outputdict={"-pix_fmt": "yuv420p"})
